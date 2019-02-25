@@ -27,9 +27,13 @@ class Product extends FirestoreModel {
   final price = ProductAttributes.price();
   final created =  ProductAttribtues.created();
 
+  @override
+  get attrs => [category, name, stock, onSale, price, created];
+
+  @override
   get collectionRef => productsRef;   
 
-  static List<Product> getProductsByName(String name) async {
+  static Future<List<Product>> getProductsByName(String name) async {
     return (await ProductAttributes.name(name).whereEquals(
       Product.productsRef
     ).getDocuments()).map((snapshot) => Product()..init(snapshot)).toList();
