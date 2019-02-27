@@ -99,8 +99,8 @@ abstract class FirestoreModel extends MutableModel<Mutable> with Lock {
     loadFromSnapshot(doc);
   }
 
-  void copyFrom(FirestoreModel other, [List<Attribute> attrs]) {
-    attrs ??= this.attrs.where((attr) => attr is Attribute).map((attr) => attr as Attribute).toList();
+  void copyFrom(FirestoreModel other, [List<StoredProperty> props]) {
+    List<Attribute> attrs = (props ?? this.attrs).where((attr) => attr is Attribute).map((attr) => attr as Attribute).toList();
     var attrMap = Map.fromEntries(attrs.map((attr) => MapEntry<String, StoredProperty>(attr.name, attr)));
     var data = Map<String, dynamic>();
     for(var attr0 in other.attrs) {
@@ -320,7 +320,7 @@ class TimestampAttr extends Attribute<DateTime> {
   TimestampAttr(String name, [DateTime initialValue]): super(name, TimestampProperty(initialValue));
 
   void setServerTimestamp() {
-    (attr as TimestampAttr).setServerTimestamp();
+    (attr as TimestampProperty).setServerTimestamp();
   }
 
 }
