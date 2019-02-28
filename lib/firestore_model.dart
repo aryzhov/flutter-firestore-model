@@ -28,7 +28,7 @@ abstract class FirestoreModel extends MutableModel<Mutable> with Lock {
 
   CollectionReference get collectionRef;
 
-  get id => docRef?.documentID;
+  DocumentReference get id => docRef;
 
   get exists => docRef != null;
 
@@ -193,11 +193,11 @@ class Attribute<T> extends StoredProperty<T> {
   }
 
   Query whereEquals(Query src) {
-    return src.where(_name, isEqualTo: value);
+    return src.where(_name, isEqualTo: attr.data);
   }
 
   Query whereLessThan(Query src) {
-    return src.where(_name, isLessThan: value);
+    return src.where(_name, isLessThan: attr.data);
   }
 
 }
@@ -325,3 +325,33 @@ class TimestampAttr extends Attribute<DateTime> {
 
 }
 
+class DocRefProperty extends Property<DocumentReference> {
+
+  final CollectionReference collectionRef;
+
+  get value {
+    if(data == null)
+      return null;
+    final id = data as String;
+    return collectionRef.document(id);
+  }
+
+  DocRefProperty(this.collectionRef, [DocumentReference initialValue]) {
+    if(initialValue != null)
+      value = initialValue;
+  }
+
+  set value(dr) {
+    if(dr == null)
+      data = null;
+    else {
+      assert(dr.path.startsWith(collectionRef.path));
+      data = dr.documentID;
+    }
+  }
+
+  bool dataEquals(newData) {
+    return data == newData;
+  }
+
+}
