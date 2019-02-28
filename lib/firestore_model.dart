@@ -12,8 +12,8 @@ import 'package:mutable_model/ordered_map.dart';
 
 abstract class FirestoreModel extends MutableModel<Mutable> with Lock {
 
-  DocumentReference docRef;
   Map<String, dynamic> data;
+  final id = SimpleProperty<DocumentReference>();
   final saving = BoolProp();
   final loaded = BoolProp();
   List<Mutable> _properties;
@@ -22,13 +22,14 @@ abstract class FirestoreModel extends MutableModel<Mutable> with Lock {
 
   List<Mutable> get properties {
     if(_properties == null)
-      _properties = <Mutable>[saving, loaded] + attrs;
+      _properties = <Mutable>[saving, loaded, id] + attrs;
     return _properties;
   }
 
   CollectionReference get collectionRef;
 
-  DocumentReference get id => docRef;
+  DocumentReference get docRef => id.value;
+  set docRef(DocumentReference value) => id.value = value;
 
   get exists => docRef != null;
 
@@ -287,6 +288,11 @@ Map<String, dynamic> getChanges(Map<String, dynamic> data, Map<String, dynamic> 
 
 class TimestampProperty extends Property<DateTime> {
 
+  TimestampProperty([DateTime initialValue]) {
+    if(initialValue != null)
+      value = initialValue;
+  }
+
   get value {
     if(data is FieldValue)
       return null; // Special handling for server timestamp
@@ -296,17 +302,8 @@ class TimestampProperty extends Property<DateTime> {
     return DateTime.fromMicrosecondsSinceEpoch(ts.microsecondsSinceEpoch);
   }
 
-  TimestampProperty([DateTime initialValue]) {
-    if(initialValue != null)
-      value = initialValue;
-  }
-
   set value(dt) {
     data = dt == null ? null : Timestamp.fromMicrosecondsSinceEpoch(dt.microsecondsSinceEpoch);
-  }
-
-  bool dataEquals(newData) {
-    return data == newData;
   }
 
   void setServerTimestamp() {
@@ -329,29 +326,27 @@ class DocRefProperty extends Property<DocumentReference> {
 
   final CollectionReference collectionRef;
 
-  get value {
+  DocRefProperty(this.collectionRef, [DocumentReference initialValue]) {
+    if(initialValue != null)
+      value = initialValue;
+  }
+
+  @override
+  DocumentReference get value {
     if(data == null)
       return null;
     final id = data as String;
     return collectionRef.document(id);
   }
 
-  DocRefProperty(this.collectionRef, [DocumentReference initialValue]) {
-    if(initialValue != null)
-      value = initialValue;
-  }
-
-  set value(dr) {
+  @override
+  set value(DocumentReference dr) {
     if(dr == null)
       data = null;
     else {
       assert(dr.path.startsWith(collectionRef.path));
       data = dr.documentID;
     }
-  }
-
-  bool dataEquals(newData) {
-    return data == newData;
   }
 
 }
