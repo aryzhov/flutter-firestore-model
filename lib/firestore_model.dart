@@ -3,12 +3,11 @@ library firestore_model;
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+// ignore: deprecated_member_use
 import 'package:collection/equality.dart';
 import 'package:synchronized_lite/synchronized_lite.dart';
 
-import 'package:mutable_model/model.dart';
-import 'package:mutable_model/properties.dart';
-import 'package:mutable_model/ordered_map.dart';
+import 'package:mutable_model/mutable_model.dart';
 
 abstract class FirestoreModel extends MutableModel<Mutable> with Lock {
 
