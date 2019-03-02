@@ -38,17 +38,17 @@ abstract class FirestoreModel extends MutableModel<Mutable> with Lock {
     readFrom(snapshot.data);
   }
 
-  void readFrom(Map<String, dynamic> data) {
+  void readFrom(Map<String, dynamic> data, [List<StoredProperty> attrs]) {
     if(data == null)
       return;
-    for(var attr in attrs)
+    for(var attr in attrs ?? this.attrs)
       attr.readFrom(data);
     this.data = data;
     loaded.value = true;
   }
 
-  void writeTo(Map<String, dynamic> data) {
-    for(var attr in attrs)
+  void writeTo(Map<String, dynamic> data, [List<StoredProperty> attrs]) {
+    for(var attr in attrs ?? this.attrs)
       attr.writeTo(data);
   }
 
@@ -321,11 +321,12 @@ class TimestampAttr extends Attribute<DateTime> {
 
 }
 
-class DocRefProperty extends Property<DocumentReference> {
+/// Stores a document reference
+class DocRefProp extends Property<DocumentReference> {
 
   final CollectionReference collectionRef;
 
-  DocRefProperty(this.collectionRef, [DocumentReference initialValue]) {
+  DocRefProp(this.collectionRef, [DocumentReference initialValue]) {
     if(initialValue != null)
       value = initialValue;
   }
@@ -348,4 +349,33 @@ class DocRefProperty extends Property<DocumentReference> {
     }
   }
 
+}
+
+/// Stores the entire model as a value. Does not store model's ID
+abstract class FirestoreModelProp<M extends FirestoreModel> extends MapProp<M> {
+  
+  M createModel();
+
+  List<StoredProperty> getStoredAttrs(M model) => model.attrs;
+  
+  get value {
+    if(data == null) {
+      return null;
+    } else {
+      M model = createModel();
+      model.readFrom(data);
+      return model;
+    }
+  }
+
+  set value(model) {
+    if(model == null) {
+      data = null;
+    } else {
+      final data = Map<String, dynamic>();
+      model.writeTo(data);
+      this.data = data;
+    }
+  }
+  
 }
