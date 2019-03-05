@@ -298,11 +298,11 @@ class TimestampProperty extends Property<DateTime> {
     if(data == null)
       return null;
     final ts = data as Timestamp;
-    return DateTime.fromMicrosecondsSinceEpoch(ts.microsecondsSinceEpoch);
+    return DateTime.fromMicrosecondsSinceEpoch(ts.microsecondsSinceEpoch, isUtc: true);
   }
 
   set value(dt) {
-    data = dt == null ? null : Timestamp.fromMicrosecondsSinceEpoch(dt.microsecondsSinceEpoch);
+    data = dt == null ? null : Timestamp.fromMicrosecondsSinceEpoch(dt.toUtc().microsecondsSinceEpoch);
   }
 
   void setServerTimestamp() {
@@ -321,6 +321,12 @@ class TimestampAttr extends Attribute<DateTime> {
 
 }
 
+class GeoPointProp extends SimpleProperty<GeoPoint> {
+
+  GeoPointProp([GeoPoint initialValue]): super(initialValue);
+
+}
+
 /// Stores a document reference
 class DocRefProp extends Property<DocumentReference> {
 
@@ -333,10 +339,12 @@ class DocRefProp extends Property<DocumentReference> {
 
   @override
   DocumentReference get value {
-    if(data == null)
+    if(data is String)
+      return collectionRef.document(data as String);
+    else if(data is DocumentReference)
+      return data;
+    else
       return null;
-    final id = data as String;
-    return collectionRef.document(id);
   }
 
   @override
@@ -345,11 +353,13 @@ class DocRefProp extends Property<DocumentReference> {
       data = null;
     else {
       assert(dr.path.startsWith(collectionRef.path));
-      data = dr.documentID;
+//      data = dr.documentID;
+      data = dr;
     }
   }
 
 }
+
 
 /// Stores the entire model as a value. Does not store model's ID
 abstract class FirestoreModelProp<M extends FirestoreModel> extends MapProp<M> {
@@ -363,7 +373,7 @@ abstract class FirestoreModelProp<M extends FirestoreModel> extends MapProp<M> {
       return null;
     } else {
       M model = createModel();
-      model.readFrom(data);
+      model.readFrom(Map.castFrom<dynamic, dynamic, String, dynamic>(data));
       return model;
     }
   }
