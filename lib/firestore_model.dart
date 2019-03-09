@@ -200,6 +200,25 @@ class Attribute<T> extends StoredProperty<T> {
     return src.where(_name, isLessThan: attr.data);
   }
 
+  Query orderBy(Query src, {descending: false}) {
+    return src.orderBy(_name, descending: descending);
+  }
+
+  Query startAt(Query src) {
+    return src.startAt([attr.data]);
+  }
+
+  Query startAfter(Query src) {
+    return src.startAfter([attr.data]);
+  }
+
+  Query endBefore(Query src) {
+    return src.endBefore([attr.data]);
+  }
+
+  Query endAt(Query src) {
+    return src.endAt([attr.data]);
+  }
 }
 
 
