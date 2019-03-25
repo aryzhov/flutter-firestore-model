@@ -9,19 +9,19 @@ import 'package:synchronized_lite/synchronized_lite.dart';
 
 import 'package:mutable_model/mutable_model.dart';
 
-abstract class FirestoreModel extends MutableModel<Mutable> with Lock {
+abstract class FirestoreModel extends MutableModel<Property> with Lock {
 
   Map<String, dynamic> data;
   final id = SimpleProperty<DocumentReference>();
   final saving = BoolProp();
   final loaded = BoolProp();
-  List<Mutable> _properties;
+  List<Property> _properties;
 
   List<StoredProperty> get attrs;
 
-  List<Mutable> get properties {
+  List<Property> get properties {
     if(_properties == null)
-      _properties = <Mutable>[saving, loaded, id] + attrs;
+      _properties = <Property>[saving, loaded, id] + attrs;
     return _properties;
   }
 
@@ -99,7 +99,7 @@ abstract class FirestoreModel extends MutableModel<Mutable> with Lock {
     loadFromSnapshot(doc);
   }
 
-  void copyFrom(FirestoreModel other, [List<StoredProperty> props]) {
+  void copyAttributesFrom(FirestoreModel other, [List<StoredProperty> props]) {
     List<Attribute> attrs = (props ?? this.attrs).where((attr) => attr is Attribute).map((attr) => attr as Attribute).toList();
     var attrMap = Map.fromEntries(attrs.map((attr) => MapEntry<String, StoredProperty>(attr.name, attr)));
     var data = Map<String, dynamic>();
@@ -146,9 +146,7 @@ StreamSubscription<QuerySnapshot> createModelSubscription<T extends FirestoreMod
   );
 }
 
-
-abstract class StoredProperty<T> extends Mutable<T> {
-
+abstract class StoredProperty<T> extends Property<T> {
 
   void readFrom(Map<dynamic, dynamic> data);
 
@@ -156,18 +154,44 @@ abstract class StoredProperty<T> extends Mutable<T> {
 
 }
 
-class Attribute<T> extends StoredProperty<T> {
+
+class Attribute<T> implements StoredProperty<T> {
 
   final String _name;
-  final Property<T> attr;
+  final DataProperty<T> attr;
 
   Attribute(this._name, this.attr);
 
   get name => _name;
+
+  @override
   bool get changed => attr.changed;
+
+  @override
   set changed(bool c) {
     attr.changed = c;
   }
+
+  @override
+  T get value => attr.value;
+
+  @override
+  set value(v) {
+    attr.value = v;
+  }
+  
+  @override
+  get oldValue => attr.oldValue;  
+
+  @override
+  void copyFrom(Property<T> other) {
+    attr.copyFrom(other is Attribute<T> ? other.attr: other);
+  }
+
+  @override
+  bool equals(Property<T> other) {
+    return attr.equals(other is Attribute<T> ? other.attr: other);
+  }  
 
   @override
   void readFrom(Map<dynamic, dynamic> data) {
@@ -179,19 +203,13 @@ class Attribute<T> extends StoredProperty<T> {
     }
   }
 
-  T get value => attr.value;
-
-  set value(v) {
-    attr.value = v;
-  }
-
-  bool get isNull => attr.data == null;
-
   @override
   void writeTo(Map<dynamic, dynamic> data) {
     data[_name] = attr.data;
   }
 
+  bool get isNull => attr.data == null;
+  
   Query whereEquals(Query src) {
     return src.where(_name, isEqualTo: attr.data);
   }
@@ -222,61 +240,98 @@ class Attribute<T> extends StoredProperty<T> {
 }
 
 
-typedef Property<T> AttributeFactory<T>();
+typedef DataProperty<T> AttributeFactory<T>();
 
+class ListAttribute<T> implements StoredProperty<List<T>> {
 
-class ListAttribute<T> extends StoredProperty<List<T>> {
-
-  String _prefix;
+  final String _prefix;
   AttributeFactory<T> factory;
-  var list = List<Property<T>>();
+  List<DataProperty<T>> _list = List<DataProperty<T>>();
+  List<T> _oldValue;
   bool _changed = false;
 
   ListAttribute(this._prefix, this.factory);
 
   get name => _prefix;
-  get changed => _changed || list.length > 0 ? list.map((attr) => attr.changed).reduce((a, b) => a || b) : false;
+
+  get changed => _changed || _list.length > 0 ? _list.map((attr) => attr.changed).reduce((a, b) => a || b) : false;
+
   set changed(c) {
-    this._changed = c;
-    if(!c)
-      for(var attr in list)
+    if(!c) {
+      this._changed = false;
+      for(var attr in _list)
         attr.changed = false;
+    }
   }
 
   void append(T value) {
     var attr = factory();
     attr.value = value;
-    list.add(attr);
-    changed = true;
+    _list.add(attr);
+    _changed = true;
   }
 
   @override
-  List<T> get value => list.map((el) => el.value).toList();
+  List<T> get value => _list.map((el) => el.value).toList();
 
   @override
   set value(List<T> value) {
-    list = value.map((el) => factory()..value = el).toList();
-    changed = true;
+    _oldValue = value;
+    _list = value.map((el) => factory()..value = el).toList();
+    _changed = true;
   }
 
   @override
+  get oldValue {
+    return _changed ? _oldValue: value;
+  }
+  
+  @override
   void readFrom(Map<dynamic, dynamic> data) {
     while(true) {
-      var key = '$_prefix${list.length}';
+      var key = '$_prefix${_list.length}';
       if(!data.containsKey(key))
         break;
       var attr = factory();
       attr.data = data[key];
-      list.add(attr);
-      changed = true;
+      _list.add(attr);
+      _changed = true;
     }
   }
 
   @override
   void writeTo(Map<dynamic, dynamic> data) {
-    for(var i = 0; i < list.length; i++) {
+    for(var i = 0; i < _list.length; i++) {
       var key = '$_prefix$i';
-      data[key] = list[i].data;
+      data[key] = _list[i].data;
+    }
+  }
+
+  @override
+  void copyFrom(Property<List<T>> other) {
+    _changed = equals(other);
+    _oldValue = _changed ? value: null;
+    if(other is ListAttribute<T>) {
+      _list = other._list.map((a) => factory()..copyFrom(a)).toList();
+    } else {
+      _list = other.value.map((v) => factory()..value = v).toList();
+    }
+  }
+
+  @override
+  bool equals(Property<List<T>> other) {
+    if(other is ListAttribute<T>) {
+      if(_list.length != other._list.length)
+        return false;
+      final it0 = _list.iterator;
+      final it1 = other._list.iterator;
+      while(it0.moveNext() && it1.moveNext()) {
+        if(!it0.current.equals(it1.current))
+          return false;
+      }
+      return true;
+    } else {
+      return false;
     }
   }
 
@@ -304,7 +359,8 @@ Map<String, dynamic> getChanges(Map<String, dynamic> data, Map<String, dynamic> 
   return changes;
 }
 
-class TimestampProperty extends Property<DateTime> {
+
+class TimestampProperty extends DataProperty<DateTime> {
 
   TimestampProperty([DateTime initialValue]) {
     if(initialValue != null)
@@ -340,14 +396,15 @@ class TimestampAttr extends Attribute<DateTime> {
 
 }
 
-class GeoPointProp extends SimpleProperty<GeoPoint> {
+/// Stores GeoPoint value as-is
+class GeoPointProp extends DataProperty<GeoPoint> {
 
   GeoPointProp([GeoPoint initialValue]): super(initialValue);
 
 }
 
 /// Stores a document reference
-class DocRefProp extends Property<DocumentReference> {
+class DocRefProp extends DataProperty<DocumentReference> {
 
   final CollectionReference collectionRef;
 
@@ -357,9 +414,9 @@ class DocRefProp extends Property<DocumentReference> {
   }
 
   @override
-  DocumentReference get value {
+  DocumentReference dataToValue(data) {
     if(data is String)
-      return collectionRef.document(data as String);
+      return collectionRef.document(data);
     else if(data is DocumentReference)
       return data;
     else
@@ -367,13 +424,13 @@ class DocRefProp extends Property<DocumentReference> {
   }
 
   @override
-  set value(DocumentReference dr) {
+  valueToData(DocumentReference dr) {
     if(dr == null)
-      data = null;
+      return null;
     else {
       assert(dr.path.startsWith(collectionRef.path));
 //      data = dr.documentID;
-      data = dr;
+      return dr;
     }
   }
 
@@ -387,7 +444,8 @@ abstract class FirestoreModelProp<M extends FirestoreModel> extends MapProp<M> {
 
   List<StoredProperty> getStoredAttrs(M model) => model.attrs;
   
-  get value {
+  @override
+  dataToValue(data) {
     if(data == null) {
       return null;
     } else {
@@ -397,13 +455,14 @@ abstract class FirestoreModelProp<M extends FirestoreModel> extends MapProp<M> {
     }
   }
 
-  set value(model) {
+  @override
+  valueToData(M model) {
     if(model == null) {
-      data = null;
+      return null;
     } else {
       final data = Map<String, dynamic>();
       model.writeTo(data);
-      this.data = data;
+      return data;
     }
   }
   
