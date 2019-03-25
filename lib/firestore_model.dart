@@ -9,7 +9,7 @@ import 'package:synchronized_lite/synchronized_lite.dart';
 
 import 'package:mutable_model/mutable_model.dart';
 
-abstract class FirestoreModel extends MutableModel<Property> with Lock {
+abstract class FirestoreModel extends Model with Lock {
 
   Map<String, dynamic> data;
   final id = SimpleProperty<DocumentReference>();
@@ -146,14 +146,13 @@ StreamSubscription<QuerySnapshot> createModelSubscription<T extends FirestoreMod
   );
 }
 
-abstract class StoredProperty<T> extends Property<T> {
+abstract class StoredProperty<T> implements Property<T> {
 
   void readFrom(Map<dynamic, dynamic> data);
 
   void writeTo(Map<dynamic, dynamic> data);
 
 }
-
 
 class Attribute<T> implements StoredProperty<T> {
 
