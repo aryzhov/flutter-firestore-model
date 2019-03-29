@@ -183,6 +183,13 @@ class Attribute<T> implements StoredProperty<T> {
   get oldValue => attr.oldValue;  
 
   @override
+  bool get isNull => attr.isNull;
+
+  @override
+  bool get isNotNull => attr.isNotNull;
+
+
+  @override
   void copyFrom(Property<T> other) {
     attr.copyFrom(other is Attribute<T> ? other.attr: other);
   }
@@ -207,8 +214,6 @@ class Attribute<T> implements StoredProperty<T> {
     data[_name] = attr.data;
   }
 
-  bool get isNull => attr.data == null;
-  
   Query whereEquals(Query src) {
     return src.where(_name, isEqualTo: attr.data);
   }
@@ -284,7 +289,13 @@ class ListAttribute<T> implements StoredProperty<List<T>> {
   get oldValue {
     return _changed ? _oldValue: value;
   }
-  
+
+  @override
+  bool get isNull => false;
+
+  @override
+  bool get isNotNull => true;
+
   @override
   void readFrom(Map<dynamic, dynamic> data) {
     while(true) {
