@@ -9,28 +9,33 @@ import 'package:synchronized_lite/synchronized_lite.dart';
 
 import 'package:mutable_model/mutable_model.dart';
 
+abstract class FirestoreMetaModel extends MetaModel {
+  static final id = Prop<DocumentReference>();
+  static final saving = BoolProp();
+  static final loaded = BoolProp();
+
+  List<Property> get properties => [saving, loaded, id] + attrs;
+
+  List<StoredProperty> get attrs;
+}
+
 abstract class FirestoreModel extends Model with Lock {
 
   Map<String, dynamic> data;
-  final id = SimpleProperty<DocumentReference>();
-  final saving = BoolProp();
-  final loaded = BoolProp();
-  List<Property> _properties;
 
-  List<StoredProperty> get attrs;
+  FirestoreModel(FirestoreMetaModel meta): super(meta);
 
-  List<Property> get properties {
-    if(_properties == null)
-      _properties = <Property>[saving, loaded, id] + attrs;
-    return _properties;
-  }
+  FirestoreMetaModel get meta => super.meta as FirestoreMetaModel;
 
   CollectionReference get collectionRef;
 
-  DocumentReference get docRef => id.value;
-  set docRef(DocumentReference value) => id.value = value;
-
-  get exists => docRef != null;
+  bool get exists => docRef != null;
+  DocumentReference get docRef => get(FirestoreMetaModel.id);
+  void set docRef(DocumentReference value) => set(FirestoreMetaModel.id, value);
+  bool get loaded => get(FirestoreMetaModel.loaded);
+  void set loaded(bool v) => set(FirestoreMetaModel.loaded, v);
+  bool get saving => get(FirestoreMetaModel.saving);
+  void set saving(bool v) => set(FirestoreMetaModel.saving, v);
 
   void init(DocumentSnapshot snapshot) {
     assert(snapshot.exists);
@@ -41,15 +46,14 @@ abstract class FirestoreModel extends Model with Lock {
   void readFrom(Map<String, dynamic> data, [List<StoredProperty> attrs]) {
     if(data == null)
       return;
-    for(var attr in attrs ?? this.attrs)
+    for(var attr in attrs ?? this.meta.attrs)
       attr.readFrom(data);
-    this.data = data;
-    loaded.value = true;
+    loaded = true;
   }
 
   void writeTo(Map<String, dynamic> data, [List<StoredProperty> attrs]) {
-    for(var attr in attrs ?? this.attrs)
-      attr.writeTo(data);
+    for(var attr in attrs ?? this.meta.attrs)
+      attr.writeTo(snapshot[attr], data);
   }
 
   Future<DocumentReference> create() async {
@@ -59,27 +63,27 @@ abstract class FirestoreModel extends Model with Lock {
 
   Future<bool> save() async {
     return await synchronized<bool>(() async {
-      var newData = createData(attrs);
       try {
         if(exists) {
-          var changes = getChanges(newData, data);
-          print("${collectionRef.path}/$id: save: ${changes.keys.toList()}");
+          var changes = getChanges();
+          print("${docRef.path}: save: ${changes.keys.toList()}");
           if(changes.length == 0)
             return false;
-          saving.value = true;
+          saving = true;
           flushChanges();
           await docRef.setData(changes, merge: true);
-          loaded.value = true;
+          loaded = true;
+          data.addAll(changes);
         } else {
-          saving.value = true;
+          saving = true;
+          data = createData();
           flushChanges();
-          print("${collectionRef.path}: create: ${newData.keys.toList()}");
-          docRef = await collectionRef.add(newData);
+          print("${collectionRef.path}: create: ${data.keys.toList()}");
+          docRef = await collectionRef.add(data);
         }
-        data = newData;
         return true;
       } finally {
-        saving.value = false;
+        saving = false;
         flushChanges();
       }
     });
@@ -88,7 +92,7 @@ abstract class FirestoreModel extends Model with Lock {
   bool loadFromSnapshot(DocumentSnapshot doc) {
     readFrom(doc.data);
     docRef = doc.reference;
-    loaded.value = true;
+    loaded = true;
     return flushChanges();
   }
 
@@ -100,28 +104,35 @@ abstract class FirestoreModel extends Model with Lock {
   }
 
   void copyAttributesFrom(FirestoreModel other, [List<StoredProperty> props]) {
-    List<Attribute> attrs = (props ?? this.attrs).where((attr) => attr is Attribute).map((attr) => attr as Attribute).toList();
-    var attrMap = Map.fromEntries(attrs.map((attr) => MapEntry<String, StoredProperty>(attr.name, attr)));
-    var data = Map<String, dynamic>();
-    for(var attr0 in other.attrs) {
-      if(attr0 is Attribute && attrMap.containsKey(attr0.name)) {
-        var attr = attrMap[attr0.name];
-        attr0.writeTo(data);
-        attr.readFrom(data);
-      }
-    }
+    copyFrom(other, props ?? meta.attrs);
   }
 
   void initTemplate() {
-    data = createData(attrs);
+    data = createData();
   }
 
   Map<String, dynamic> getTemplateData() {
-    final newData = createData(attrs);
-    final changes = getChanges(newData, data);
-    return changes;
+    return getChanges();
   }
 
+  Map<String, dynamic> createData([List<StoredProperty> attrs]) {
+    final data = Map<String, dynamic>();
+    writeTo(data, attrs);
+    return data;
+  }
+  
+  Map<String, dynamic> getChanges([List<StoredProperty> attrs]) {
+    if(data == null)
+      return createData(attrs);
+    else {
+      final changes = Map<String, dynamic>();
+      for(var attr in attrs ?? this.meta.attrs)
+        attr.calcChanges(snapshot[attr], data, changes);
+      return changes;
+    }
+  }
+
+  
 }
 
 typedef T ElementFactory<T>(DocumentSnapshot doc);
@@ -147,251 +158,143 @@ StreamSubscription<QuerySnapshot> createModelSubscription<T extends FirestoreMod
 }
 
 abstract class StoredProperty<T> implements Property<T> {
+  final Property<T> prop;
+  int index;
 
-  void readFrom(Map<dynamic, dynamic> data);
+  StoredProperty(this.prop);
 
-  void writeTo(Map<dynamic, dynamic> data);
+  dynamic store(T value) => prop.store(value);
+  T load(dynamic value) => prop.load(value);
+  bool dataEquals(dynamic a, dynamic b) => prop.dataEquals(a, b);
+  T get initial => prop.initial;
 
+  dynamic readFrom(Map<dynamic, dynamic> data);
+
+  void writeTo(dynamic modelData, Map<dynamic, dynamic> data);
+
+  void calcChanges(dynamic modelData, Map<dynamic, dynamic> data, Map<dynamic, dynamic> changes);
+  
 }
 
-class Attribute<T> implements StoredProperty<T> {
+class Attribute<T> extends StoredProperty<T> {
 
-  final String _name;
-  final DataProperty<T> attr;
+  final String name;
 
-  Attribute(this._name, this.attr);
-
-  get name => _name;
+  Attribute(this.name, Property<T> attr): super(attr);
 
   @override
-  bool get changed => attr.changed;
-
-  @override
-  set changed(bool c) {
-    attr.changed = c;
-  }
-
-  @override
-  T get value => attr.value;
-
-  @override
-  set value(v) {
-    attr.value = v;
-  }
-  
-  @override
-  get oldValue => attr.oldValue;  
-
-  @override
-  bool get isNull => attr.isNull;
-
-  @override
-  bool get isNotNull => attr.isNotNull;
-
-
-  @override
-  void copyFrom(Property<T> other) {
-    attr.copyFrom(other is Attribute<T> ? other.attr: other);
-  }
-
-  @override
-  bool equals(Property<T> other) {
-    return attr.equals(other is Attribute<T> ? other.attr: other);
-  }  
-
-  @override
-  void readFrom(Map<dynamic, dynamic> data) {
-    if(!data.containsKey(_name)) {
-      attr.data = null;
+  dynamic readFrom(Map<dynamic, dynamic> data) {
+    if(!data.containsKey(name)) {
+      return null;
     } else {
-      var attrData = data[_name];
-      attr.data = attrData;
+      return data[name];
     }
   }
 
   @override
-  void writeTo(Map<dynamic, dynamic> data) {
-    data[_name] = attr.data;
+  void writeTo(dynamic modelData, Map<dynamic, dynamic> data) {
+    data[name] = modelData;
   }
 
-  Query whereEquals(Query src) {
-    return src.where(_name, isEqualTo: attr.data);
+  void calcChanges(dynamic modelData, Map<dynamic, dynamic> data, Map<dynamic, dynamic> changes) {
+    if(!changes.containsKey(name) || !dataEquals(modelData, changes[name]))
+      changes[name] = modelData;
+  }
+  
+  Query whereEquals(T value, Query src) {
+    return src.where(name, isEqualTo: prop.store(value));
   }
 
-  Query whereLessThan(Query src) {
-    return src.where(_name, isLessThan: attr.data);
+  Query whereLessThan(T value, Query src) {
+    return src.where(name, isLessThan: prop.store(value));
   }
 
   Query orderBy(Query src, {descending: false}) {
-    return src.orderBy(_name, descending: descending);
+    return src.orderBy(name, descending: descending);
   }
 
-  Query startAt(Query src) {
-    return src.startAt([attr.data]);
+  Query startAt(T value, Query src) {
+    return src.startAt([prop.store(value)]);
   }
 
-  Query startAfter(Query src) {
-    return src.startAfter([attr.data]);
+  Query startAfter(T value, Query src) {
+    return src.startAfter([prop.store(value)]);
   }
 
-  Query endBefore(Query src) {
-    return src.endBefore([attr.data]);
+  Query endBefore(T value, Query src) {
+    return src.endBefore([prop.store(value)]);
   }
 
-  Query endAt(Query src) {
-    return src.endAt([attr.data]);
+  Query endAt(T value, Query src) {
+    return src.endAt([prop.store(value)]);
   }
 }
 
+//typedef T Factory<T>();
+class ListAttribute<T> extends StoredProperty<List<T>> {
 
-typedef DataProperty<T> AttributeFactory<T>();
+  final String prefix;
 
-class ListAttribute<T> implements StoredProperty<List<T>> {
-
-  final String _prefix;
-  AttributeFactory<T> factory;
-  List<DataProperty<T>> _list = List<DataProperty<T>>();
-  List<T> _oldValue;
-  bool _changed = false;
-
-  ListAttribute(this._prefix, this.factory);
-
-  get name => _prefix;
-
-  get changed => _changed || _list.length > 0 ? _list.map((attr) => attr.changed).reduce((a, b) => a || b) : false;
-
-  set changed(c) {
-    if(!c) {
-      this._changed = false;
-      for(var attr in _list)
-        attr.changed = false;
-    }
-  }
-
-  void append(T value) {
-    var attr = factory();
-    attr.value = value;
-    _list.add(attr);
-    _changed = true;
-  }
+  ListAttribute(this.prefix, ListProp<T> prop): super(prop);
 
   @override
-  List<T> get value => _list.map((el) => el.value).toList();
-
-  @override
-  set value(List<T> value) {
-    _oldValue = value;
-    _list = value.map((el) => factory()..value = el).toList();
-    _changed = true;
-  }
-
-  @override
-  get oldValue {
-    return _changed ? _oldValue: value;
-  }
-
-  @override
-  bool get isNull => false;
-
-  @override
-  bool get isNotNull => true;
-
-  @override
-  void readFrom(Map<dynamic, dynamic> data) {
+  dynamic readFrom(Map<dynamic, dynamic> data) {
+    final list = List<dynamic>();
     while(true) {
-      var key = '$_prefix${_list.length}';
+      var key = '$prefix${list.length}';
       if(!data.containsKey(key))
         break;
-      var attr = factory();
-      attr.data = data[key];
-      _list.add(attr);
-      _changed = true;
+      list.add(data[key]);
     }
+    return list;
   }
 
   @override
-  void writeTo(Map<dynamic, dynamic> data) {
-    for(var i = 0; i < _list.length; i++) {
-      var key = '$_prefix$i';
-      data[key] = _list[i].data;
-    }
-  }
-
-  @override
-  void copyFrom(Property<List<T>> other) {
-    _changed = equals(other);
-    _oldValue = _changed ? value: null;
-    if(other is ListAttribute<T>) {
-      _list = other._list.map((a) => factory()..copyFrom(a)).toList();
-    } else {
-      _list = other.value.map((v) => factory()..value = v).toList();
-    }
-  }
-
-  @override
-  bool equals(Property<List<T>> other) {
-    if(other is ListAttribute<T>) {
-      if(_list.length != other._list.length)
-        return false;
-      final it0 = _list.iterator;
-      final it1 = other._list.iterator;
-      while(it0.moveNext() && it1.moveNext()) {
-        if(!it0.current.equals(it1.current))
-          return false;
+  void writeTo(dynamic modelData, Map<dynamic, dynamic> data) {
+    final list = modelData as List;
+    if(list != null) {
+      for(var i = 0; i < list.length; i++) {
+        var key = '$prefix$i';
+        data[key] = list[i].data;
       }
-      return true;
-    } else {
-      return false;
     }
   }
 
-}
-
-Map<String, dynamic> createData(List<StoredProperty> attrs) {
-  final data = Map<String, dynamic>();
-  for(var attr in attrs)
-    attr.writeTo(data);
-  return data;
-}
-
-final equality = DeepCollectionEquality.unordered();
-
-Map<String, dynamic> getChanges(Map<String, dynamic> data, Map<String, dynamic> oldData) {
-  if(oldData == null || oldData.length == 0)
-    return data;
-  final changes = Map.of(data)..removeWhere((k, v) {
-    // this code is verbose for debugging
-    if(!oldData.containsKey(k))
-      return false;
-    bool eq = equality.equals(v, oldData[k]);
-    return eq;
-  });
-  return changes;
-}
-
-
-class TimestampProperty extends DataProperty<DateTime> {
-
-  TimestampProperty([DateTime initialValue]) {
-    if(initialValue != null)
-      value = initialValue;
+  void calcChanges(dynamic modelData, Map<dynamic, dynamic> data, Map<dynamic, dynamic> changes) {
+    if(modelData is List) {
+      for(var i = 0; i < modelData.length; i++) {
+        var key = '$prefix$i';
+        if(!data.containsKey(key) || !(prop as ListProp<T>).element.dataEquals(modelData[i], data[key]))
+          changes[key] = modelData[i];
+      }
+    }
   }
+  
+}
 
-  get value {
+class TimestampProperty extends Prop<DateTime> {
+
+  TimestampProperty([DateTime initialValue]): super(initialValue);
+
+  @override
+  DateTime load(dynamic data) {
     if(data is FieldValue)
       return null; // Special handling for server timestamp
     if(data == null)
       return null;
+    if(data is DateTime)
+      return data;
     final ts = data as Timestamp;
     return DateTime.fromMicrosecondsSinceEpoch(ts.microsecondsSinceEpoch, isUtc: true);
   }
 
-  set value(dt) {
-    data = dt == null ? null : Timestamp.fromMicrosecondsSinceEpoch(dt.toUtc().microsecondsSinceEpoch);
+  @override
+  dynamic store(DateTime dt) {
+    return dt == null ? null : Timestamp.fromMicrosecondsSinceEpoch(dt.toUtc().microsecondsSinceEpoch);
   }
 
-  void setServerTimestamp() {
-    data = FieldValue.serverTimestamp();
+  dynamic serverTimestamp() {
+    return FieldValue.serverTimestamp();
   }
 
 }
@@ -400,31 +303,28 @@ class TimestampAttr extends Attribute<DateTime> {
 
   TimestampAttr(String name, [DateTime initialValue]): super(name, TimestampProperty(initialValue));
 
-  void setServerTimestamp() {
-    (attr as TimestampProperty).setServerTimestamp();
+  dynamic serverTimestamp() {
+    (prop as TimestampProperty).serverTimestamp();
   }
 
 }
 
 /// Stores GeoPoint value as-is
-class GeoPointProp extends DataProperty<GeoPoint> {
+class GeoPointProp extends Prop<GeoPoint> {
 
   GeoPointProp([GeoPoint initialValue]): super(initialValue);
 
 }
 
 /// Stores a document reference
-class DocRefProp extends DataProperty<DocumentReference> {
+class DocRefProp extends Prop<DocumentReference> {
 
   final CollectionReference collectionRef;
 
-  DocRefProp(this.collectionRef, [DocumentReference initialValue]) {
-    if(initialValue != null)
-      value = initialValue;
-  }
+  DocRefProp(this.collectionRef, [DocumentReference initialValue]): super(initialValue);
 
   @override
-  DocumentReference dataToValue(data) {
+  DocumentReference load(data) {
     if(data is String)
       return collectionRef.document(data);
     else if(data is DocumentReference)
@@ -434,12 +334,11 @@ class DocRefProp extends DataProperty<DocumentReference> {
   }
 
   @override
-  valueToData(DocumentReference dr) {
+  dynamic store(DocumentReference dr) {
     if(dr == null)
       return null;
     else {
       assert(dr.path.startsWith(collectionRef.path));
-//      data = dr.documentID;
       return dr;
     }
   }
@@ -452,10 +351,10 @@ abstract class FirestoreModelProp<M extends FirestoreModel> extends MapProp<M> {
   
   M createModel();
 
-  List<StoredProperty> getStoredAttrs(M model) => model.attrs;
+  List<StoredProperty> getStoredAttrs(M model) => model.meta.attrs;
   
   @override
-  dataToValue(data) {
+  M load(data) {
     if(data == null) {
       return null;
     } else {
@@ -466,11 +365,11 @@ abstract class FirestoreModelProp<M extends FirestoreModel> extends MapProp<M> {
   }
 
   @override
-  valueToData(M model) {
+  dynamic store(M model) {
     if(model == null) {
       return null;
     } else {
-      final data = Map<String, dynamic>();
+      final data = model.createData();
       model.writeTo(data);
       return data;
     }
