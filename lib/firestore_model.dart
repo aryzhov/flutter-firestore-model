@@ -9,40 +9,40 @@ import 'package:synchronized_lite/synchronized_lite.dart';
 
 import 'package:mutable_model/mutable_model.dart';
 
-abstract class FirestoreMetaModel extends MetaModel {
-  static final id = Prop<DocumentReference>();
-  static final saving = BoolProp();
-  static final loaded = BoolProp();
-
-  List<Property> get properties => [saving, loaded, id] + attrs;
+abstract class StoredMetaModel extends MetaModel {
 
   List<StoredProperty> get attrs;
+  static final saving = BoolProp();
+  static final loaded = BoolProp();
+  
+  @override
+  get properties => <Property>[saving, loaded] + attrs;
 }
 
-abstract class FirestoreModel extends Model with Lock {
 
-  Map<String, dynamic> data;
-
-  FirestoreModel(FirestoreMetaModel meta): super(meta);
-
-  FirestoreMetaModel get meta => super.meta as FirestoreMetaModel;
+abstract class FirestoreMetaModel extends StoredMetaModel {
+  static final id = Prop<DocumentReference>();
 
   CollectionReference get collectionRef;
+  
+  @override
+  get properties => [StoredMetaModel.saving, StoredMetaModel.loaded, id] + attrs;
 
-  bool get exists => docRef != null;
-  DocumentReference get docRef => get(FirestoreMetaModel.id);
-  void set docRef(DocumentReference value) => set(FirestoreMetaModel.id, value);
-  bool get loaded => get(FirestoreMetaModel.loaded);
-  void set loaded(bool v) => set(FirestoreMetaModel.loaded, v);
-  bool get saving => get(FirestoreMetaModel.saving);
-  void set saving(bool v) => set(FirestoreMetaModel.saving, v);
+}
 
-  void init(DocumentSnapshot snapshot) {
-    assert(snapshot.exists);
-    this.docRef = snapshot.reference;
-    readFrom(snapshot.data);
-  }
+abstract class StoredModel extends Model {
 
+  Map<String, dynamic> data;
+  bool get loaded => get(StoredMetaModel.loaded);
+  bool get saving => get(StoredMetaModel.saving);
+  set loaded(bool value) => set(StoredMetaModel.loaded, value);
+  set saving(bool value) => set(StoredMetaModel.saving, value);
+  
+  StoredModel(StoredMetaModel meta): super(meta);
+  
+  @override
+  StoredMetaModel get meta => super.meta as StoredMetaModel;
+  
   void readFrom(Map<String, dynamic> data, [List<StoredProperty> attrs]) {
     if(data == null)
       return;
@@ -54,6 +54,46 @@ abstract class FirestoreModel extends Model with Lock {
   void writeTo(Map<String, dynamic> data, [List<StoredProperty> attrs]) {
     for(var attr in attrs ?? this.meta.attrs)
       attr.writeTo(snapshot[attr], data);
+  }
+
+  Map<String, dynamic> createData([List<StoredProperty> attrs]) {
+    final data = Map<String, dynamic>();
+    writeTo(data, attrs);
+    return data;
+  }
+
+  Map<String, dynamic> getChanges([List<StoredProperty> attrs]) {
+    if(data == null)
+      return createData(attrs);
+    else {
+      final changes = Map<String, dynamic>();
+      for(var attr in attrs ?? this.meta.attrs)
+        attr.calcChanges(snapshot[attr], data, changes);
+      return changes;
+    }
+  }
+
+  void copyAttributesFrom(StoredModel other, [List<StoredProperty> props]) {
+    copyFrom(other, props ?? meta.attrs);
+  }
+
+}
+
+abstract class FirestoreModel extends StoredModel with Lock {
+
+  FirestoreModel(FirestoreMetaModel meta): super(meta);
+
+  @override
+  FirestoreMetaModel get meta => super.meta as FirestoreMetaModel;
+
+  bool get exists => docRef != null;
+  DocumentReference get docRef => get(FirestoreMetaModel.id);
+  set docRef(DocumentReference value) => set(FirestoreMetaModel.id, value);
+
+  void init(DocumentSnapshot snapshot) {
+    assert(snapshot.exists);
+    this.docRef = snapshot.reference;
+    readFrom(snapshot.data);
   }
 
   Future<DocumentReference> create() async {
@@ -78,8 +118,8 @@ abstract class FirestoreModel extends Model with Lock {
           saving = true;
           data = createData();
           flushChanges();
-          print("${collectionRef.path}: create: ${data.keys.toList()}");
-          docRef = await collectionRef.add(data);
+          print("${meta.collectionRef.path}: create: ${data.keys.toList()}");
+          docRef = await meta.collectionRef.add(data);
         }
         return true;
       } finally {
@@ -99,12 +139,8 @@ abstract class FirestoreModel extends Model with Lock {
   Future<void> load(String id) async {
     if(id == null)
       return;
-    var doc = await collectionRef.document(id).get();
+    var doc = await meta.collectionRef.document(id).get();
     loadFromSnapshot(doc);
-  }
-
-  void copyAttributesFrom(FirestoreModel other, [List<StoredProperty> props]) {
-    copyFrom(other, props ?? meta.attrs);
   }
 
   void initTemplate() {
@@ -115,24 +151,6 @@ abstract class FirestoreModel extends Model with Lock {
     return getChanges();
   }
 
-  Map<String, dynamic> createData([List<StoredProperty> attrs]) {
-    final data = Map<String, dynamic>();
-    writeTo(data, attrs);
-    return data;
-  }
-  
-  Map<String, dynamic> getChanges([List<StoredProperty> attrs]) {
-    if(data == null)
-      return createData(attrs);
-    else {
-      final changes = Map<String, dynamic>();
-      for(var attr in attrs ?? this.meta.attrs)
-        attr.calcChanges(snapshot[attr], data, changes);
-      return changes;
-    }
-  }
-
-  
 }
 
 typedef T ElementFactory<T>(DocumentSnapshot doc);
@@ -345,11 +363,14 @@ class DocRefProp extends Prop<DocumentReference> {
 
 }
 
+typedef T Factory<T>();
 
 /// Stores the entire model as a value. Does not store model's ID
-abstract class FirestoreModelProp<M extends FirestoreModel> extends MapProp<M> {
-  
-  M createModel();
+class StoredModelProp<M extends StoredModel> extends MapProp<M> {
+
+  final Factory<M> factory;
+
+  StoredModelProp(this.factory);
 
   List<StoredProperty> getStoredAttrs(M model) => model.meta.attrs;
   
@@ -358,7 +379,7 @@ abstract class FirestoreModelProp<M extends FirestoreModel> extends MapProp<M> {
     if(data == null) {
       return null;
     } else {
-      M model = createModel();
+      M model = factory();
       model.readFrom(Map.castFrom<dynamic, dynamic, String, dynamic>(data));
       return model;
     }
