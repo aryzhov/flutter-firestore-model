@@ -178,8 +178,9 @@ StreamSubscription<QuerySnapshot> createModelSubscription<T extends FirestoreMod
 abstract class StoredProperty<T> implements Property<T> {
   final Property<T> prop;
   int index;
+  final String name;
 
-  StoredProperty(this.prop);
+  StoredProperty(this.name, this.prop);
 
   dynamic store(T value) => prop.store(value);
   T load(dynamic value) => prop.load(value);
@@ -196,9 +197,8 @@ abstract class StoredProperty<T> implements Property<T> {
 
 class Attribute<T> extends StoredProperty<T> {
 
-  final String name;
 
-  Attribute(this.name, Property<T> attr): super(attr);
+  Attribute(String name, Property<T> attr): super(name, attr);
 
   @override
   dynamic readFrom(Map<dynamic, dynamic> data) {
@@ -251,9 +251,9 @@ class Attribute<T> extends StoredProperty<T> {
 //typedef T Factory<T>();
 class ListAttribute<T> extends StoredProperty<List<T>> {
 
-  final String prefix;
+  String get prefix => name;
 
-  ListAttribute(this.prefix, ListProp<T> prop): super(prop);
+  ListAttribute(String prefix, ListProp<T> prop): super(prefix, prop);
 
   @override
   dynamic readFrom(Map<dynamic, dynamic> data) {
@@ -369,18 +369,17 @@ typedef T Factory<T>();
 class StoredModelProp<M extends StoredModel> extends MapProp<M> {
 
   final Factory<M> factory;
+  final List<StoredProperty> storedAttrs;
 
-  StoredModelProp(this.factory);
+  StoredModelProp(this.factory, this.storedAttrs);
 
-  List<StoredProperty> getStoredAttrs(M model) => model.meta.attrs;
-  
   @override
   M load(data) {
     if(data == null) {
       return null;
     } else {
       M model = factory();
-      model.readFrom(Map.castFrom<dynamic, dynamic, String, dynamic>(data));
+      model.readFrom(Map.castFrom<dynamic, dynamic, String, dynamic>(data), storedAttrs);
       return model;
     }
   }
@@ -390,9 +389,7 @@ class StoredModelProp<M extends StoredModel> extends MapProp<M> {
     if(model == null) {
       return null;
     } else {
-      final data = model.createData();
-      model.writeTo(data);
-      return data;
+      return model.createData(storedAttrs);
     }
   }
   
