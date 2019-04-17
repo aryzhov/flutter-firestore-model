@@ -370,13 +370,14 @@ class StoredModelProp<M extends StoredModel> extends MapProp<M> {
 
   final Factory<M> factory;
   final List<StoredProperty> storedAttrs;
+  final bool allowNull;
 
-  StoredModelProp(this.factory, this.storedAttrs);
+  StoredModelProp(this.factory, this.storedAttrs, {this.allowNull = true});
 
   @override
   M load(data) {
     if(data == null) {
-      return null;
+      return allowNull ? null: factory();
     } else {
       M model = factory();
       model.readFrom(Map.castFrom<dynamic, dynamic, String, dynamic>(data), storedAttrs);
@@ -386,10 +387,10 @@ class StoredModelProp<M extends StoredModel> extends MapProp<M> {
 
   @override
   dynamic store(M model) {
-    if(model == null) {
+    if(model == null && allowNull) {
       return null;
     } else {
-      return model.createData(storedAttrs);
+      return (model ?? factory()).createData(storedAttrs);
     }
   }
   
