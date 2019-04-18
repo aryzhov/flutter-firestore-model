@@ -9,24 +9,27 @@ import 'package:synchronized_lite/synchronized_lite.dart';
 
 import 'package:mutable_model/mutable_model.dart';
 
+// The subclass must define a getter for [properties] that includes [loaded], [saving], and [attrs]
 abstract class StoredMetaModel extends MetaModel {
 
   List<StoredProperty> get attrs;
   static final saving = BoolProp();
   static final loaded = BoolProp();
-  
-  @override
-  get properties => <Property>[saving, loaded] + attrs;
-}
 
+  static final storedModelProperties = <Property>[saving, loaded];
+
+  get properties => storedModelProperties + List.castFrom<StoredProperty, Property>(attrs);
+}
 
 abstract class FirestoreMetaModel extends StoredMetaModel {
   static final id = Prop<DocumentReference>();
 
   CollectionReference get collectionRef;
-  
+
   @override
-  get properties => [StoredMetaModel.saving, StoredMetaModel.loaded, id] + attrs;
+  List<Property> get properties => StoredMetaModel.storedModelProperties + <Property>[FirestoreMetaModel.id] + List.castFrom<StoredProperty, Property>(attrs) + extraProperties;
+
+  List<Property> get extraProperties => [];
 
 }
 
@@ -47,13 +50,13 @@ abstract class StoredModel extends Model {
     if(data == null)
       return;
     for(var attr in attrs ?? this.meta.attrs)
-      attr.readFrom(data);
+      setData(attr, attr.readFrom(data));
     loaded = true;
   }
 
   void writeTo(Map<String, dynamic> data, [List<StoredProperty> attrs]) {
     for(var attr in attrs ?? this.meta.attrs)
-      attr.writeTo(snapshot[attr], data);
+      attr.writeTo(getData(attr), data);
   }
 
   Map<String, dynamic> createData([List<StoredProperty> attrs]) {
@@ -68,7 +71,7 @@ abstract class StoredModel extends Model {
     else {
       final changes = Map<String, dynamic>();
       for(var attr in attrs ?? this.meta.attrs)
-        attr.calcChanges(snapshot[attr], data, changes);
+        attr.calcChanges(getData(attr), data, changes);
       return changes;
     }
   }
@@ -94,6 +97,8 @@ abstract class FirestoreModel extends StoredModel with Lock {
     assert(snapshot.exists);
     this.docRef = snapshot.reference;
     readFrom(snapshot.data);
+    data = createData();
+    flushChanges();
   }
 
   Future<DocumentReference> create() async {
