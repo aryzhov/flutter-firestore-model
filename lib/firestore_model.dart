@@ -127,7 +127,7 @@ abstract class FirestoreModel extends StoredModel with Lock {
   Future<bool> save() async {
     return await synchronized<bool>(() async {
       try {
-        if(exists) {
+        if(docRef != null) {
           var changes = getChanges();
           print("${docRef.path}: save: ${changes.keys.toList()}");
           if(changes.length == 0)
@@ -136,7 +136,10 @@ abstract class FirestoreModel extends StoredModel with Lock {
           flushChanges();
           await docRef.setData(changes, merge: true);
           loaded = true;
-          data.addAll(changes);
+          if(data == null)
+            data = changes;
+          else
+            data.addAll(changes);
         } else {
           saving = true;
           data = createData();
