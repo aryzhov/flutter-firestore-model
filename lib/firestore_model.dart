@@ -45,7 +45,7 @@ abstract class FirestoreMetaModel extends StoredMetaModel {
   CollectionReference get collectionRef;
 
   @override
-  List<Property> get properties => StoredMetaModel.storedModelProperties + <Property>[FirestoreMetaModel.id] + List.castFrom<StoredProperty, Property>(attrs) + extraProperties;
+  List<Property> get properties => StoredMetaModel.storedModelProperties + <Property>[FirestoreMetaModel.id] + List.castFrom<StoredProperty, Property>(cachedAttrs) + extraProperties;
 
   List<Property> get extraProperties => [];
 
@@ -107,7 +107,7 @@ abstract class FirestoreModel extends StoredModel with Lock {
   @override
   FirestoreMetaModel get meta => super.meta as FirestoreMetaModel;
 
-  bool get exists => docRef != null;
+  bool get exists => data != null;
   DocumentReference get docRef => get(FirestoreMetaModel.id);
   set docRef(DocumentReference value) => set(FirestoreMetaModel.id, value);
 
@@ -296,7 +296,7 @@ class ListAttribute<T> extends StoredProperty<List<T>> {
     if(list != null) {
       for(var i = 0; i < list.length; i++) {
         var key = '$prefix$i';
-        data[key] = list[i].data;
+        data[key] = list[i];
       }
     }
   }
