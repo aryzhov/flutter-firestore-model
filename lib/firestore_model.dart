@@ -19,6 +19,24 @@ abstract class StoredMetaModel extends MetaModel {
   static final storedModelProperties = <Property>[saving, loaded];
 
   get properties => storedModelProperties + List.castFrom<StoredProperty, Property>(attrs);
+  
+  List<StoredProperty> _cachedAttrs; 
+  
+  get cachedAttrs {
+    if(_cachedAttrs == null) {
+       _cachedAttrs = checkAttrs(attrs);
+       assert(_cachedAttrs != null);
+    }
+    return _cachedAttrs;
+  }
+
+  static List<StoredProperty> checkAttrs(final List<StoredProperty> attrs) {
+    assert(() {
+      return attrs == null || attrs.length == Set.from(attrs.map((a) => a.name)).length;
+    }(), "Attributes contain a duplicate name");
+    return attrs;
+  }
+
 }
 
 abstract class FirestoreMetaModel extends StoredMetaModel {
@@ -49,13 +67,13 @@ abstract class StoredModel extends Model {
   void readFrom(Map<String, dynamic> data, [List<StoredProperty> attrs]) {
     if(data == null)
       return;
-    for(var attr in attrs ?? this.meta.attrs)
+    for(var attr in StoredMetaModel.checkAttrs(attrs) ?? this.meta.cachedAttrs)
       setData(attr, attr.readFrom(data));
     loaded = true;
   }
 
   void writeTo(Map<String, dynamic> data, [List<StoredProperty> attrs]) {
-    for(var attr in attrs ?? this.meta.attrs)
+    for(var attr in StoredMetaModel.checkAttrs(attrs) ?? this.meta.cachedAttrs)
       attr.writeTo(getData(attr), data);
   }
 
@@ -70,14 +88,14 @@ abstract class StoredModel extends Model {
       return createData(attrs);
     else {
       final changes = Map<String, dynamic>();
-      for(var attr in attrs ?? this.meta.attrs)
+      for(var attr in StoredMetaModel.checkAttrs(attrs) ?? this.meta.cachedAttrs)
         attr.calcChanges(getData(attr), data, changes);
       return changes;
     }
   }
 
-  void copyAttributesFrom(StoredModel other, [List<StoredProperty> props]) {
-    copyFrom(other, props ?? meta.attrs);
+  void copyAttributesFrom(StoredModel other, [List<StoredProperty> attrs]) {
+    copyFrom(other, StoredMetaModel.checkAttrs(attrs) ?? meta.cachedAttrs);
   }
 
 }
@@ -220,7 +238,7 @@ class Attribute<T> extends StoredProperty<T> {
   }
 
   void calcChanges(dynamic modelData, Map<dynamic, dynamic> data, Map<dynamic, dynamic> changes) {
-    if(!changes.containsKey(name) || !dataEquals(modelData, changes[name]))
+    if(!data.containsKey(name) || !dataEquals(modelData, data[name]))
       changes[name] = modelData;
   }
   
