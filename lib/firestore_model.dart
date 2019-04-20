@@ -36,7 +36,6 @@ abstract class FirestoreModel extends StoredModel with Lock {
     assert(snapshot.exists);
     this.docRef = snapshot.reference;
     readFrom(snapshot.data);
-    data = createData();
     flushChanges();
   }
 
