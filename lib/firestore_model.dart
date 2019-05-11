@@ -246,7 +246,7 @@ class TimestampAttr extends Attribute<DateTime> {
   TimestampAttr(String name, [DateTime initialValue]): super(name, TimestampProperty(initialValue));
 
   dynamic serverTimestamp() {
-    (prop as TimestampProperty).serverTimestamp();
+    return (prop as TimestampProperty).serverTimestamp();
   }
 
 }
