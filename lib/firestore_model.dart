@@ -2,7 +2,10 @@ library firestore_model;
 
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase/firebase_io.dart';
+import 'package:firebase/firebase.dart' as fb;
+import 'package:firebase/firestore.dart';
+
 // ignore: deprecated_member_use
 import 'package:collection/equality.dart';
 import 'package:synchronized_lite/synchronized_lite.dart';
@@ -34,8 +37,8 @@ abstract class FirestoreModel extends StoredModel with Lock {
 
   void init(DocumentSnapshot snapshot) {
     assert(snapshot.exists);
-    this.docRef = snapshot.reference;
-    readFrom(snapshot.data);
+    this.docRef = snapshot.ref;
+    readFrom(snapshot.data());
     flushChanges();
   }
 
@@ -50,11 +53,11 @@ abstract class FirestoreModel extends StoredModel with Lock {
         if(docRef != null) {
           var changes = getChanges();
           print("${docRef.path}: save: ${changes.keys.toList()}");
-          if(changes.length == 0)
+          if(changes.isEmpty)
             return false;
           saving = true;
           flushChanges();
-          await docRef.setData(changes, merge: true);
+          await docRef.set(changes, SetOptions(merge: true));
           loaded = true;
           if(data == null)
             data = changes;
@@ -76,8 +79,8 @@ abstract class FirestoreModel extends StoredModel with Lock {
   }
 
   bool loadFromSnapshot(DocumentSnapshot doc) {
-    readFrom(doc.data);
-    docRef = doc.reference;
+    readFrom(doc.data());
+    docRef = doc.ref;
     loaded = true;
     return flushChanges();
   }
@@ -85,7 +88,7 @@ abstract class FirestoreModel extends StoredModel with Lock {
   Future<void> load(String id) async {
     if(id == null)
       return;
-    var doc = await meta.collectionRef.document(id).get();
+    var doc = await meta.collectionRef.doc(id).get();
     loadFromSnapshot(doc);
   }
 
@@ -105,16 +108,16 @@ StreamSubscription<QuerySnapshot> createModelSubscription<T extends FirestoreMod
   OrderedMap<String, T>collection,
   ElementFactory<T> factory,
   Query query}) {
-  return query.snapshots().listen(
+  return query.onSnapshot.listen(
     (snapshots) {
-      for(var change in snapshots.documentChanges) {
-        var doc = change.document;
-        if(change.type == DocumentChangeType.removed) {
-          collection.remove(doc.documentID);
-        } else if(collection.containsKey(doc.documentID)) {
-          collection[doc.documentID].loadFromSnapshot(doc);
+      for(var change in snapshots.docChanges()) {
+        var doc = change.doc;
+        if(change.type == 'removed') {
+          collection.remove(doc.id);
+        } else if(collection.containsKey(doc.id)) {
+          collection[doc.id].loadFromSnapshot(doc);
         } else {
-          collection.put(doc.documentID,  factory(doc));
+          collection.put(doc.id,  factory(doc));
         }
       }
     }
@@ -145,31 +148,31 @@ class Attribute<T> extends StoredProperty<T> {
   }
 
   Query whereEquals(T value, Query src) {
-    return src.where(name, isEqualTo: prop.store(value));
+    return src.where(name, '==', prop.store(value));
   }
 
   Query whereLessThan(T value, Query src) {
-    return src.where(name, isLessThan: prop.store(value));
+    return src.where(name, '<', prop.store(value));
   }
 
-  Query orderBy(Query src, {descending: false}) {
-    return src.orderBy(name, descending: descending);
+  Query orderBy(Query src, {descending = false}) {
+    return src.orderBy(name, descending ? 'desc': 'asc');
   }
 
   Query startAt(T value, Query src) {
-    return src.startAt([prop.store(value)]);
+    return src.startAt(fieldValues: [prop.store(value)]);
   }
 
   Query startAfter(T value, Query src) {
-    return src.startAfter([prop.store(value)]);
+    return src.startAfter(fieldValues: [prop.store(value)]);
   }
 
   Query endBefore(T value, Query src) {
-    return src.endBefore([prop.store(value)]);
+    return src.endBefore(fieldValues: [prop.store(value)]);
   }
 
   Query endAt(T value, Query src) {
-    return src.endAt([prop.store(value)]);
+    return src.endAt(fieldValues: [prop.store(value)]);
   }
 }
 
@@ -226,13 +229,15 @@ class TimestampProperty extends Prop<DateTime> {
       return null;
     if(data is DateTime)
       return data;
-    final ts = data as Timestamp;
-    return DateTime.fromMicrosecondsSinceEpoch(ts.microsecondsSinceEpoch, isUtc: true);
+    // Changed from Timestamp
+    final ts = data as String;
+    return DateTime.fromMillisecondsSinceEpoch(int.parse(ts), isUtc: true);
   }
 
   @override
   dynamic store(DateTime dt) {
-    return dt == null ? null : Timestamp.fromMicrosecondsSinceEpoch(dt.toUtc().microsecondsSinceEpoch);
+    // Changed from Timestamp
+    return dt == null ? null : (dt.toUtc().microsecondsSinceEpoch).toString();
   }
 
   dynamic serverTimestamp() {
@@ -268,7 +273,7 @@ class DocRefProp extends Prop<DocumentReference> {
   @override
   DocumentReference load(data) {
     if(data is String)
-      return collectionRef.document(data);
+      return collectionRef.doc(data);
     else if(data is DocumentReference)
       return data;
     else
