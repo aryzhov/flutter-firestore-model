@@ -105,7 +105,7 @@ abstract class FirestoreModel extends StoredModel with Lock {
 typedef T ElementFactory<T>(DocumentSnapshot doc);
 
 StreamSubscription<QuerySnapshot> createModelSubscription<T extends FirestoreModel>({
-  OrderedMap<String, T>collection,
+  ModelMap<String, T>collection,
   ElementFactory<T> factory,
   Query query}) {
   return query.onSnapshot.listen(
@@ -120,6 +120,7 @@ StreamSubscription<QuerySnapshot> createModelSubscription<T extends FirestoreMod
           collection.put(doc.id,  factory(doc));
         }
       }
+      collection.loaded = true;
     }
   );
 }
@@ -266,15 +267,11 @@ class GeoPointProp extends Prop<GeoPoint> {
 /// Stores a document reference
 class DocRefProp extends Prop<DocumentReference> {
 
-  final CollectionReference collectionRef;
-
-  DocRefProp(this.collectionRef, [DocumentReference initialValue]): super(initialValue);
+  DocRefProp([DocumentReference initialValue]): super(initialValue);
 
   @override
   DocumentReference load(data) {
-    if(data is String)
-      return collectionRef.doc(data);
-    else if(data is DocumentReference)
+    if(data is DocumentReference)
       return data;
     else
       return null;
@@ -285,7 +282,6 @@ class DocRefProp extends Prop<DocumentReference> {
     if(dr == null)
       return null;
     else {
-      assert(dr.path.startsWith(collectionRef.path));
       return dr;
     }
   }
