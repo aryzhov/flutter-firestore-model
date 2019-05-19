@@ -1,16 +1,15 @@
 library firestore_model;
 
 import 'dart:async';
-
 import 'package:firebase/firebase_io.dart';
 import 'package:firebase/firebase.dart' as fb;
 import 'package:firebase/firestore.dart';
-
 // ignore: deprecated_member_use
 import 'package:collection/equality.dart';
 import 'package:synchronized_lite/synchronized_lite.dart';
-
 import 'package:mutable_model/mutable_model.dart';
+import 'dart:js' as js;
+
 
 abstract class FirestoreMetaModel extends StoredMetaModel {
   static final id = Prop<DocumentReference>();
@@ -57,7 +56,9 @@ abstract class FirestoreModel extends StoredModel with Lock {
             return false;
           saving = true;
           flushChanges();
-          await docRef.set(changes, SetOptions(merge: true));
+          // print("Changes: $changes");
+          final sanitized = sanitize(changes);
+          await docRef.set(sanitized, SetOptions(merge: true));
           loaded = true;
           if(data == null)
             data = changes;
@@ -68,9 +69,12 @@ abstract class FirestoreModel extends StoredModel with Lock {
           data = createData();
           flushChanges();
           print("${meta.collectionRef.path}: create: ${data.keys.toList()}");
-          docRef = await meta.collectionRef.add(data);
+          final sanitized = sanitize(data);
+          docRef = await meta.collectionRef.add(sanitized);
         }
         return true;
+      } catch(e) {
+        print("Save error: $e");
       } finally {
         saving = false;
         flushChanges();
@@ -271,19 +275,12 @@ class DocRefProp extends Prop<DocumentReference> {
 
   @override
   DocumentReference load(data) {
-    if(data is DocumentReference)
-      return data;
-    else
-      return null;
+    return data as DocumentReference;
   }
 
   @override
   dynamic store(DocumentReference dr) {
-    if(dr == null)
-      return null;
-    else {
-      return dr;
-    }
+    return dr;
   }
 
 }
@@ -319,4 +316,24 @@ class StoredModelProp<M extends StoredModel> extends MapProp<M> {
     }
   }
   
+}
+
+
+/// An obscure way to declare a null value that will be passed as null in js-interop calls.
+final _null = (() => new js.JsObject.jsify({'a': null})['a'])();
+
+/// This function exists as a workaround for https://github.com/dart-lang/sdk/issues/27485
+/// (dart2js functions sometimes return undefined instead of null).
+/// Since the value undefined cannot be used in firebase functions, we need to replace 
+/// undefined with null.
+T sanitize<T>(T value) {
+  if(value == null) {
+    return _null;
+  } else if(value is Map) {
+    return Map<String, dynamic>.fromEntries(value.entries.map((me) => MapEntry(me.key, sanitize(me.value)))) as T;
+  } else if(value is List) {
+    return value.map((el) => sanitize(el)).toList() as T;
+  } else {
+    return value;
+  }
 }
