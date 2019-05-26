@@ -51,7 +51,7 @@ abstract class FirestoreModel extends StoredModel with Lock {
       try {
         if(docRef != null) {
           var changes = getChanges();
-          print("${docRef.path}: save: ${changes.keys.toList()}");
+          // print("${docRef.path}: save: ${changes.keys.toList()}");
           if(changes.isEmpty)
             return false;
           saving = true;
@@ -68,7 +68,7 @@ abstract class FirestoreModel extends StoredModel with Lock {
           saving = true;
           data = createData();
           flushChanges();
-          print("${meta.collectionRef.path}: create: ${data.keys.toList()}");
+          // print("${meta.collectionRef.path}: create: ${data.keys.toList()}");
           final sanitized = sanitize(data);
           docRef = await meta.collectionRef.add(sanitized);
         }
@@ -114,19 +114,30 @@ StreamSubscription<QuerySnapshot> createModelSubscription<T extends FirestoreMod
   Query query}) {
   return query.onSnapshot.listen(
     (snapshots) {
-      for(var change in snapshots.docChanges()) {
-        var doc = change.doc;
-        if(change.type == 'removed') {
-          collection.remove(doc.id);
-        } else if(collection.containsKey(doc.id)) {
-          collection[doc.id].loadFromSnapshot(doc);
-        } else {
-          collection.put(doc.id,  factory(doc));
+      try {
+        // print("Got a snapshot");
+        for(var change in snapshots.docChanges()) {
+          var doc = change.doc;
+          if(change.type == 'removed') {
+            // print("   Removed element: ${doc.id}");
+            collection.remove(doc.id);
+          } else if(collection.containsKey(doc.id)) {
+            // print("   Changed element: ${doc.id}");
+            collection[doc.id].loadFromSnapshot(doc);
+          } else {
+            // print("   Added element: ${doc.id}");
+            collection.put(doc.id,  factory(doc));
+          }
         }
+        collection.loaded = true;
+        // print("Done with snapshot");
+      } catch(e) {
+        print("Error in onSnapshot: $e");
       }
-      collection.loaded = true;
     }
-  );
+  , onError: (e) {
+    print("Error: $e");
+  });
 }
 
 class Attribute<T> extends StoredProperty<T> {
@@ -236,7 +247,7 @@ class TimestampProperty extends Prop<DateTime> {
       return data;
     // Changed from Timestamp
     final ts = data as String;
-    return DateTime.fromMillisecondsSinceEpoch(int.parse(ts), isUtc: true);
+    return DateTime.fromMicrosecondsSinceEpoch(int.parse(ts), isUtc: true);
   }
 
   @override
