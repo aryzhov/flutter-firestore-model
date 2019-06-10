@@ -10,7 +10,6 @@ import 'package:synchronized_lite/synchronized_lite.dart';
 import 'package:mutable_model/mutable_model.dart';
 import 'dart:js' as js;
 
-
 abstract class FirestoreMetaModel extends StoredMetaModel {
   static final id = Prop<DocumentReference>();
 
@@ -75,6 +74,7 @@ abstract class FirestoreModel extends StoredModel with Lock {
         return true;
       } catch(e) {
         print("Save error: $e");
+        return false;
       } finally {
         saving = false;
         flushChanges();
@@ -235,25 +235,23 @@ class ListAttribute<T> extends StoredProperty<List<T>> {
 
 class TimestampProperty extends Prop<DateTime> {
 
-  TimestampProperty([DateTime initialValue]): super(initialValue);
+  final bool isUtc;
+  
+  TimestampProperty({DateTime initialValue, this.isUtc = true}): super(initialValue);
 
   @override
   DateTime load(dynamic data) {
-    if(data is FieldValue)
-      return null; // Special handling for server timestamp
-    if(data == null)
+    if(data is DateTime) {
+      return isUtc ? data.toUtc(): data.toLocal();
+    } else {
       return null;
-    if(data is DateTime)
-      return data;
-    // Changed from Timestamp
-    final ts = data as String;
-    return DateTime.fromMicrosecondsSinceEpoch(int.parse(ts), isUtc: true);
+    }
   }
 
   @override
   dynamic store(DateTime dt) {
     // Changed from Timestamp
-    return dt == null ? null : (dt.toUtc().microsecondsSinceEpoch).toString();
+    return dt;
   }
 
   dynamic serverTimestamp() {
@@ -264,7 +262,7 @@ class TimestampProperty extends Prop<DateTime> {
 
 class TimestampAttr extends Attribute<DateTime> {
 
-  TimestampAttr(String name, [DateTime initialValue]): super(name, TimestampProperty(initialValue));
+  TimestampAttr(String name, {DateTime initialValue, bool isUtc = true}): super(name, TimestampProperty(initialValue: initialValue, isUtc: isUtc));
 
   dynamic serverTimestamp() {
     return (prop as TimestampProperty).serverTimestamp();
@@ -343,7 +341,7 @@ T sanitize<T>(T value) {
   } else if(value is Map) {
     return Map<String, dynamic>.fromEntries(value.entries.map((me) => MapEntry(me.key, sanitize(me.value)))) as T;
   } else if(value is List) {
-    return value.map((el) => sanitize(el)).toList() as T;
+    return (value as List<dynamic>).map((el) => sanitize(el)).toList() as T;
   } else {
     return value;
   }
