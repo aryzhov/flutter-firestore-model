@@ -149,6 +149,10 @@ class Attribute<T> extends StoredProperty<T> {
     return src.where(name, isEqualTo: prop.store(value));
   }
 
+  Query whereIsNull(bool isNull, Query src) {
+    return src.where(name, isNull: isNull);
+  }
+
   Query whereLessThan(T value, Query src) {
     return src.where(name, isLessThan: prop.store(value));
   }
