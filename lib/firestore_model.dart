@@ -3,8 +3,6 @@ library firestore_model;
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-// ignore: deprecated_member_use
-import 'package:collection/equality.dart';
 import 'package:synchronized_lite/synchronized_lite.dart';
 
 import 'package:mutable_model/mutable_model.dart';
@@ -108,13 +106,14 @@ StreamSubscription<QuerySnapshot> createModelSubscription<T extends FirestoreMod
   return query.snapshots().listen(
     (snapshots) {
       for(var change in snapshots.documentChanges) {
-        var doc = change.document;
+        final doc = change.document;
+        final id = doc.reference.path;
         if(change.type == DocumentChangeType.removed) {
-          collection.remove(doc.documentID);
-        } else if(collection.containsKey(doc.documentID)) {
-          collection[doc.documentID].loadFromSnapshot(doc);
+          collection.remove(id);
+        } else if(collection.containsKey(id)) {
+          collection[id].loadFromSnapshot(doc);
         } else {
-          collection.put(doc.documentID,  factory(doc));
+          collection.put(id,  factory(doc));
         }
       }
       collection.loaded = true;
