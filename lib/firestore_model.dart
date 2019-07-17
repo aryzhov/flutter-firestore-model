@@ -31,9 +31,9 @@ abstract class FirestoreModel extends StoredModel with Lock {
   set docRef(DocumentReference value) => set(FirestoreMetaModel.id, value);
 
   void init(DocumentSnapshot snapshot) {
-    assert(snapshot.exists);
+    if(snapshot.exists)
+      readFrom(snapshot.data);
     this.docRef = snapshot.reference;
-    readFrom(snapshot.data);
     flushChanges();
   }
 
