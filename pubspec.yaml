@@ -11,6 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   cloud_firestore: ">=0.9.0"
+  synchronized_lite:
 
 dev_dependencies:
   flutter_test:
@@ -19,8 +20,6 @@ dev_dependencies:
   mutable_model:
     path: ../flutter-mutable-model/
 
-  synchronized_lite:
-    path: ../synchronized_lite/
 
 flutter:
 
