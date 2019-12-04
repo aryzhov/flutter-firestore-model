@@ -1,14 +1,11 @@
 library firestore_model;
 
 import 'dart:async';
-import 'package:firebase/firebase_io.dart';
-import 'package:firebase/firebase.dart' as fb;
-import 'package:firebase/firestore.dart';
-// ignore: deprecated_member_use
-import 'package:collection/equality.dart';
-import 'package:synchronized_lite/synchronized_lite.dart';
-import 'package:mutable_model/mutable_model.dart';
 import 'dart:js' as js;
+
+import 'package:firebase/firestore.dart';
+import 'package:mutable_model/mutable_model.dart';
+import 'package:synchronized_lite/synchronized_lite.dart';
 
 abstract class FirestoreMetaModel extends StoredMetaModel {
   static final id = Prop<DocumentReference>();
